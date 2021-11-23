@@ -1,0 +1,62 @@
+# This workflow will build a Java project with Maven, and cache/restore any dependencies to improve the workflow execution time
+# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-maven
+
+name: Java CI with Maven
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+
+    runs-on: self-hosted
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up JDK 11
+      uses: actions/setup-java@v2
+      with:
+        java-version: '11'
+        distribution: 'adopt'
+        cache: maven
+    - name: Build with Maven
+      run: mvn -B package --file pom.xml
+  publish-docker-image:
+    name: Publish to Docker Registry
+    runs-on: self-hosted
+    needs: [build]
+    
+    steps:
+      - uses: actions/checkout@v2
+      - name: Login to Docker Registry
+        run: docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }} registry.parlantos.com
+      - name: Build Container image
+        run: >
+          docker build --build-arg OKTA_TOKEN=${{ secrets.OKTA_TOKEN }}
+          --build-arg OKTA_ORG_URL=${{ secrets.OKTA_ORG_URL }} --build-arg OKTA_ISSUER=${{ secrets.OKTA_ISSUER }} --build-arg OKTA_CLIENTID=${{ secrets.OKTA_CLIENTID }} 
+          --build-arg OKTA_CLIENTSECRET=${{ secrets.OKTA_CLIENTSECRET }}   
+          -t ${{ secrets.DOCKER_REPO }}:latest .
+      - name: Publish Docker image
+        run: docker push ${{ secrets.DOCKER_REPO }}
+#  launch-docker-image-on-server:
+#    name: Run docker image on server
+#    runs-on: self-hosted
+#    needs: [publish-docker-image]
+#    steps:
+#      - name: Execute docker commands through ssh
+#        uses: appleboy/ssh-action@v0.1.4
+#        with:
+#          host: ${{ secrets.REMOTE_HOST }}
+#          username: ${{ secrets.REMOTE_USER }}
+#          passphrase: ${{ secrets.SSH_PASSPHRASE }}
+#          key: ${{ secrets.CICD_SSH_KEY }}
+#          port: ${{ secrets.PORT }}
+#          script: |
+#            docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }} registry.parlantos.com
+#            docker container stop parlantos-media-uploader
+#            docker rm parlantos-media-uploader
+#            docker pull ${{ secrets.DOCKER_REPO }}:latest
+#            docker run -d -p 8084:8084 --name parlantos-media-uploader --restart unless-stopped ${{ secrets.DOCKER_REPO }}:latest
